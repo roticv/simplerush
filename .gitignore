@@ -1,3 +1,6 @@
+# Build folder
+build/*
+
 # Prerequisites
 *.d
 
@@ -30,3 +33,8 @@
 *.exe
 *.out
 *.app
+
+# vim swp files
+*~
+*.swp
+*.swo
