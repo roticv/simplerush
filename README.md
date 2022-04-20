@@ -5,6 +5,8 @@ instructions on https://github.com/ngtcp2/ngtcp2
 
 ## How to build
 
-  mkdir build
-	cmake ../
-	cmake --build .
+```
+mkdir build
+cmake ../
+cmake --build .
+```

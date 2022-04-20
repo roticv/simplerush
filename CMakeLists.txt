@@ -29,3 +29,10 @@ endif()
 include(CheckSymbolExists)
 check_symbol_exists(SSL_is_quic "openssl/ssl.h" HAVE_SSL_IS_QUIC)
 
+# Set up libraries
+add_subdirectory(flv)
+
+add_executable(flv_to_rush flv_to_rush)
+target_link_libraries(flv_to_rush
+	rush_flv)
+
