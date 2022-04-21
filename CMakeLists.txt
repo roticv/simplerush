@@ -38,3 +38,11 @@ target_link_libraries(flv_to_rush
 	rush
 	rush_flv)
 
+add_executable(flv_to_rush_stream flv_to_rush_stream)
+target_link_libraries(flv_to_rush_stream
+	OpenSSL::SSL
+	${NGTCP2_LIBRARIES}
+	${NGTCP2_CRYPTO_LIBRARY}
+	${LIBEV_LIBRARIES}
+	rush
+	rush_flv)

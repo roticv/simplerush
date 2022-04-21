@@ -38,3 +38,10 @@ build/*
 *~
 *.swp
 *.swo
+
+# video files
+*.flv
+*.mp4
+*.m4a
+*.m4v
+*.fbvp

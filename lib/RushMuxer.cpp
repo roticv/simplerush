@@ -18,7 +18,6 @@ void RushMuxer::setAACAudioSpecificConfig(
 }
 
 bool RushMuxer::setAVCDecoderConfig(const uint8_t* decoderConfig, size_t size) {
-  // TODO implement extracting pps/sps from AVCDecoderConfig
   ByteReader reader(decoderConfig, size);
   if (!reader.canAdvance(6)) {
     return false;
@@ -92,10 +91,6 @@ RushMuxer::createConnectPayload(const std::string& connectPayload) {
 
 std::vector<uint8_t> RushMuxer::createAudioPayload(
     int64_t ts, const uint8_t* aacData, size_t aacDataSize) {
-  /*
-   * 8byte len, 8byte id, 1byte frame type, 1byte codec, 8byte timestamp
-   * 1byte track id, 2byte header len, header len, payload len
-   */
   int64_t len =
       8 + 8 + 1 + 1 + 8 + 1 + 2 + audioSpecificConfig_.size() + aacDataSize;
   std::vector<uint8_t> buf(len, '\0');
@@ -156,7 +151,7 @@ std::vector<uint8_t> RushMuxer::createVideoPayload(
 
   size_t newVideoPayloadSize = size;
   if (isKeyFrame) {
-    newVideoPayloadSize += sps_.size() + pps_.size();
+    newVideoPayloadSize += 4 +sps_.size() + 4 +pps_.size();
   }
 
   int64_t len = 8 + 8 + 1 + 1 + 8 + 8 + 1 + 2 + newVideoPayloadSize;
@@ -178,12 +173,16 @@ std::vector<uint8_t> RushMuxer::createVideoPayload(
   wl16(&p, 0);
 
   // Prepending of SPS/PPS if the bitstream is detected to have IDR
+  // The format is avcc and so we need to encode nalu size
   if (isKeyFrame) {
+    wb32(&p, sps_.size());
     wblob(&p, sps_.data(), sps_.size());
+    wb32(&p, pps_.size());
     wblob(&p, pps_.data(), pps_.size());
   }
 
   wblob(&p, avccData, size);
+
   return buf;
 }
 

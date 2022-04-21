@@ -10,3 +10,7 @@ mkdir build
 cmake ../
 cmake --build .
 ```
+
+## Credits
+
+The `flv_to_rush_stream` is based on simpleclient example in ngtcp2.

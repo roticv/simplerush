@@ -27,6 +27,14 @@ inline void wl64(uint8_t** p, uint64_t val) {
   *p += 8;
 }
 
+inline void wb32(uint8_t** p, uint32_t val) {
+	(*p)[0] = (val >> 24) & 0xff;
+	(*p)[1] = (val >> 16) & 0xff;
+	(*p)[2] = (val >> 8) & 0xff;
+	(*p)[3] = (val) & 0xff;
+	*p += 4;
+}
+
 inline void wblob(uint8_t** p, const uint8_t* blob, size_t blob_size) {
   std::memcpy(*p, blob, blob_size);
   *p += blob_size;

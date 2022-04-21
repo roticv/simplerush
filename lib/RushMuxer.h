@@ -26,8 +26,8 @@ class RushMuxer {
 
  private:
   void parseH264(const uint8_t* avccData, size_t size, bool* isKeyFrame);
-  const int64_t audioTimescale_;
-  const int64_t videoTimescale_;
+  int64_t audioTimescale_;
+  int64_t videoTimescale_;
 
   int64_t seqId_{1};
   std::vector<uint8_t> audioSpecificConfig_;
