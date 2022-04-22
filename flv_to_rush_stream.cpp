@@ -393,8 +393,8 @@ static int client_quic_init(
 
   params.initial_max_streams_uni = 3;
   params.initial_max_streams_bidi = 3;
-  params.initial_max_stream_data_bidi_local = 128 * 1024;
-  params.initial_max_data = 1024 * 1024;
+  params.initial_max_stream_data_bidi_local = 1024 * 1024;
+  params.initial_max_data = 5 * 1024 * 1024;
   params.max_idle_timeout = 300 * NGTCP2_SECONDS;
 
   // changed to NGTCP2_PROTO_VER_V2_DRAFT (instead of NGTCP2_PROTO_VER_V1)
@@ -692,8 +692,8 @@ static int client_init(struct client* c, const std::string& connect_payload) {
   socklen_t remote_addrlen, local_addrlen = sizeof(local_addr);
 
   memset(c, 0, sizeof(*c));
-  c.connect_payload = connect_payload;
-  c.muxer = RushMuxer(1000, 1000);
+  c->connect_payload = connect_payload;
+  c->muxer = RushMuxer(1000, 1000);
 
   ngtcp2_connection_close_error_default(&c->last_error);
 
