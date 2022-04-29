@@ -19,6 +19,18 @@ onQuicStreamDataFramed(int64_t streamId, ssize_t dataLength, void* context) {
   RushClient* client = (RushClient*)context;
   client->onQuicStreamDataFramed(streamId, dataLength);
 }
+
+static int64_t timestamp() {
+  struct timespec tp;
+
+  if (clock_gettime(CLOCK_MONOTONIC, &tp) != 0) {
+    fprintf(stderr, "clock_gettime: %s\n", strerror(errno));
+    exit(EXIT_FAILURE);
+  }
+
+  return (int64_t)tp.tv_sec * NGTCP2_SECONDS + (int64_t)tp.tv_nsec;
+}
+
 } // namespace
 
 RushClient::RushClient(
@@ -28,7 +40,7 @@ RushClient::RushClient(
   loop_ = ev_loop_new(EVFLAG_AUTO);
 
   auto rushConnectPayload = muxer_.createConnectPayload(connectPayload);
-  queue_.push_back(std::move(rushConnectPayload));
+  queue_.emplace_back(timestamp(), std::move(rushConnectPayload));
 }
 
 RushClient::~RushClient() {
@@ -78,13 +90,13 @@ void RushClient::setAACAudioSpecificConfig(
 void RushClient::appendAudioPayload(
     int64_t ts, const uint8_t* aacData, size_t aacDataSize) {
   auto rushAudioData = muxer_.createAudioPayload(ts, aacData, aacDataSize);
-  queue_.push_back(std::move(rushAudioData));
+  queue_.emplace_back(timestamp(), std::move(rushAudioData));
 }
 
 void RushClient::appendVideoPayload(
     int64_t pts, int64_t dts, const uint8_t* avccData, size_t size) {
   auto rushVideoData = muxer_.createVideoPayload(pts, dts, avccData, size);
-  queue_.push_back(std::move(rushVideoData));
+  queue_.emplace_back(timestamp(), std::move(rushVideoData));
 }
 
 ssize_t RushClient::onQuicStreamWritable(
@@ -96,7 +108,7 @@ ssize_t RushClient::onQuicStreamWritable(
   *streamId = connection_->getStreamId();
 
   ssize_t totalSofar = 0;
-  for (const auto& buf : queue_) {
+  for (const auto& [ts, buf] : queue_) {
     if (totalSofar + buf.size() > bytesProcessed_) {
       vec->base = (uint8_t*)buf.data() + bytesProcessed_ - totalSofar;
       vec->len = buf.size() - (bytesProcessed_ - totalSofar);
@@ -104,6 +116,8 @@ ssize_t RushClient::onQuicStreamWritable(
     }
     totalSofar += buf.size();
   }
+
+  // No data
   vec->base = nullptr;
   vec->len = 0;
   return 0;
@@ -118,8 +132,10 @@ void RushClient::onQuicStreamDataFramed(
 
 void RushClient::removeItemsFromQueue() {
   while (bytesProcessed_ > 0 && !queue_.empty() &&
-         queue_.front().size() <= bytesProcessed_) {
-    auto frontBufferLen = queue_.front().size();
+         queue_.front().second.size() <= bytesProcessed_) {
+    auto frontBufferLen = queue_.front().second.size();
+    auto ts = queue_.front().first;
+    printf("time delta: %lldns\n", timestamp() - ts);
     queue_.pop_front();
     bytesProcessed_ -= frontBufferLen;
   }

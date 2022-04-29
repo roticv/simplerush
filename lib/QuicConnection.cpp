@@ -331,10 +331,12 @@ bool QuicConnection::setupNgtcp2() {
 
   ngtcp2_settings_default(&settings);
 
+  settings.cc_algo = NGTCP2_CC_ALGO_CUBIC;
   settings.initial_ts = timestamp();
   settings.log_printf = log_printf;
   settings.handshake_timeout = 10 * NGTCP2_SECONDS;
-  settings.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
+  //settings.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
+  settings.initial_rtt = 3 * NGTCP2_SECONDS;
   settings.max_udp_payload_size = maxUdpPacketSize_;
   settings.no_udp_payload_size_shaping = 1;
 
@@ -342,8 +344,9 @@ bool QuicConnection::setupNgtcp2() {
 
   params.initial_max_streams_uni = 3;
   params.initial_max_streams_bidi = 3;
-  params.initial_max_stream_data_bidi_local = 1024 * 1024;
-  params.initial_max_data = 5 * 1024 * 1024;
+  params.initial_max_stream_data_bidi_local = 100*1024 * 1024;
+  params.initial_max_stream_data_bidi_remote= 100 * 1024 * 1024;
+  params.initial_max_data = 1024 * 1024 * 1024;
   params.max_idle_timeout = 300 * NGTCP2_SECONDS;
 
   rv = ngtcp2_conn_client_new(
@@ -452,6 +455,10 @@ bool QuicConnection::tryWriteToNgtcp2() {
   ev_tstamp t =
       (expiry < now) ? 1e-9 : (ev_tstamp)(expiry - now) / NGTCP2_SECONDS;
 
+  if (t > 1e-5) {
+    t = 1e-5;
+  }
+
   timer_.repeat = t;
   ev_timer_again(loop_, &timer_);
 
@@ -476,6 +483,11 @@ bool QuicConnection::tryWriteStream() {
   for (;;) {
     datavcnt = callbacks_.onStreamWritable(
         &streamId, &fin, &datav, 1, callbacks_.context);
+
+    if (streamId == getStreamId() && datavcnt == 0) {
+      // No data for now.
+      return true;
+    }
 
     flags = NGTCP2_WRITE_STREAM_FLAG_MORE;
     if (fin) {

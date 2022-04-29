@@ -10,8 +10,6 @@
 
 namespace rush {
 
-// TODO
-// The class is not thread safe when accessed from multiple threads. Fix that
 class RushClient : private NonCopyable {
  public:
   RushClient(
@@ -40,7 +38,7 @@ class RushClient : private NonCopyable {
   bool connectAttempted_{false};
   RushMuxer muxer_;
   std::unique_ptr<QuicConnection> connection_;
-  std::list<std::vector<uint8_t>> queue_;
+  std::list<std::pair<int64_t, std::vector<uint8_t>>> queue_;
   ssize_t bytesProcessed_{0};
 
   std::unique_ptr<std::thread> evThread_;

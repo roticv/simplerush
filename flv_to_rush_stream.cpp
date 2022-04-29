@@ -1,10 +1,30 @@
 #include <iostream>
+#include <unistd.h>
 
 #include "flv/Flv.h"
 #include "flv/FlvIo.h"
 #include "lib/RushClient.h"
 
 using namespace rush;
+
+class Sleeper {
+ public:
+  void sleepUntilMs(int64_t tsMs) {
+    if (ts_ == -1) {
+      ts_ = tsMs;
+      return;
+    }
+    auto diffMs = tsMs - ts_;
+    if (diffMs <= 0) {
+      return;
+    }
+    ::usleep(diffMs * 1000);
+    ts_ = tsMs;
+  }
+
+ private:
+  int64_t ts_{-1};
+};
 
 std::vector<std::shared_ptr<FlvTag>> process_flv(const std::string& filename) {
   std::vector<std::shared_ptr<FlvTag>> tags;
@@ -26,6 +46,7 @@ std::vector<std::shared_ptr<FlvTag>> process_flv(const std::string& filename) {
 void generate_media_payload(
     RushClient* client,
     const std::vector<std::shared_ptr<FlvTag>>& tags) {
+  Sleeper s;
   for (const auto& tag : tags) {
     if (tag->getTagType() == FLVTAGTYPE::AUDIO) {
       // Skipping logic to check for AAC, assuming AAC
@@ -50,6 +71,8 @@ void generate_media_payload(
     if (tag->getTagType() == FLVTAGTYPE::AUDIO) {
       auto audioTag = std::dynamic_pointer_cast<FlvTagAudioData>(tag);
       if (audioTag->getPacketType() == 1) {
+        printf("audio ts %d\n", audioTag->getTimestamp());
+        s.sleepUntilMs(audioTag->getTimestamp());
         // AudioData
         client->appendAudioPayload(
             audioTag->getTimestamp(),
@@ -62,6 +85,8 @@ void generate_media_payload(
         // VideoData
         int64_t dts = videoTag->getTimestamp();
         int64_t pts = dts + videoTag->getCompositionTimestamp();
+        printf("pts %d\n", pts);
+        s.sleepUntilMs(pts);
         client->appendVideoPayload(
             pts, dts, videoTag->getVideoData(), videoTag->getVideoDataSize());
       }
