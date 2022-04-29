@@ -33,6 +33,9 @@ check_symbol_exists(SSL_is_quic "openssl/ssl.h" HAVE_SSL_IS_QUIC)
 add_subdirectory(flv)
 add_subdirectory(lib)
 
+enable_testing()
+add_subdirectory(tests)
+
 add_executable(flv_to_rush flv_to_rush)
 target_link_libraries(flv_to_rush
 	rush
