@@ -4,6 +4,7 @@
 #include <memory>
 #include <thread>
 
+#include "lib/EvLoop.h"
 #include "lib/NonCopyable.h"
 #include "lib/QuicConnection.h"
 #include "lib/RushMuxer.h"
@@ -38,10 +39,13 @@ class RushClient : private NonCopyable {
   bool connectAttempted_{false};
   RushMuxer muxer_;
   std::unique_ptr<QuicConnection> connection_;
+
+  /// Hold on to queueMutex before trying to modify queue_
+  std::mutex queueMutex_;
   std::list<std::pair<int64_t, std::vector<uint8_t>>> queue_;
   ssize_t bytesProcessed_{0};
 
   std::unique_ptr<std::thread> evThread_;
-  struct ev_loop* loop_;
+  std::shared_ptr<EvLoop> evLoop_;
 };
 } // namespace rush

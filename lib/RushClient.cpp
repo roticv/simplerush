@@ -35,19 +35,20 @@ static int64_t timestamp() {
 
 RushClient::RushClient(
     const std::string& connectPayload, int audioTimescale, int videoTimescale)
-  : muxer_(audioTimescale, videoTimescale) {
-  // Set up ev_loop
-  loop_ = ev_loop_new(EVFLAG_AUTO);
+  : muxer_(audioTimescale, videoTimescale),
+    evLoop_(std::make_shared<EvLoop>()) {
 
   auto rushConnectPayload = muxer_.createConnectPayload(connectPayload);
-  queue_.emplace_back(timestamp(), std::move(rushConnectPayload));
+  {
+    const std::lock_guard<std::mutex> l(queueMutex_);
+    queue_.emplace_back(timestamp(), std::move(rushConnectPayload));
+  }
 }
 
 RushClient::~RushClient() {
   if (evThread_) {
     evThread_->join();
   }
-  ev_loop_destroy(loop_);
 }
 
 bool RushClient::connect() {
@@ -60,7 +61,11 @@ bool RushClient::connect() {
       .context = this,
   };
   auto connection = QuicConnection::make(
-      callbacks, loop_, "live-upload-staging.facebook.com", 443, {"fbvp"});
+      callbacks,
+      evLoop_->getEvLoop(),
+      "live-upload-staging.facebook.com",
+      443,
+      {"fbvp"});
   if (!connection) {
     fprintf(stderr, "Creating Quic connection failed\n");
     return false;
@@ -68,11 +73,11 @@ bool RushClient::connect() {
   connection_ = std::move(connection);
 
   // ev_run can only happen after the QuicConnection setup hook back with loop_
-  evThread_ =
-      std::unique_ptr<std::thread>(new std::thread([&] { ev_run(loop_, 0); }));
+  evThread_ = std::make_unique<std::thread>([&] { evLoop_->runLoop(); });
 
   // Trigger handshake
-  connection_->tryWriteToNgtcp2();
+  //connection_->tryWriteToNgtcp2();
+  evLoop_->enqueue([&] { connection_->tryWriteToNgtcp2(); });
   connectAttempted_ = true;
   return true;
 }
@@ -90,13 +95,21 @@ void RushClient::setAACAudioSpecificConfig(
 void RushClient::appendAudioPayload(
     int64_t ts, const uint8_t* aacData, size_t aacDataSize) {
   auto rushAudioData = muxer_.createAudioPayload(ts, aacData, aacDataSize);
-  queue_.emplace_back(timestamp(), std::move(rushAudioData));
+  {
+    const std::lock_guard<std::mutex> l(queueMutex_);
+    queue_.emplace_back(timestamp(), std::move(rushAudioData));
+  }
+  evLoop_->enqueue([&] { connection_->tryWriteToNgtcp2(); });
 }
 
 void RushClient::appendVideoPayload(
     int64_t pts, int64_t dts, const uint8_t* avccData, size_t size) {
   auto rushVideoData = muxer_.createVideoPayload(pts, dts, avccData, size);
-  queue_.emplace_back(timestamp(), std::move(rushVideoData));
+  {
+    const std::lock_guard<std::mutex> l(queueMutex_);
+    queue_.emplace_back(timestamp(), std::move(rushVideoData));
+  }
+  evLoop_->enqueue([&] { connection_->tryWriteToNgtcp2(); });
 }
 
 ssize_t RushClient::onQuicStreamWritable(
@@ -107,14 +120,18 @@ ssize_t RushClient::onQuicStreamWritable(
   *fin = 0;
   *streamId = connection_->getStreamId();
 
-  ssize_t totalSofar = 0;
-  for (const auto& [ts, buf] : queue_) {
-    if (totalSofar + buf.size() > bytesProcessed_) {
-      vec->base = (uint8_t*)buf.data() + bytesProcessed_ - totalSofar;
-      vec->len = buf.size() - (bytesProcessed_ - totalSofar);
-      return 1;
+  {
+    const std::lock_guard<std::mutex> l(queueMutex_);
+    ssize_t totalSofar = 0;
+    //int datavcnt = 0;
+    for (const auto& [ts, buf] : queue_) {
+      if (totalSofar + buf.size() > bytesProcessed_) {
+        vec->base = (uint8_t*)buf.data() + bytesProcessed_ - totalSofar;
+        vec->len = buf.size() - (bytesProcessed_ - totalSofar);
+        return 1;
+      }
+      totalSofar += buf.size();
     }
-    totalSofar += buf.size();
   }
 
   // No data
@@ -126,18 +143,24 @@ ssize_t RushClient::onQuicStreamWritable(
 // Clear up memory that RushClient has been holding on to
 void RushClient::onQuicStreamDataFramed(
     int64_t /*streamId*/, ssize_t dataLength) {
-  bytesProcessed_ += dataLength;
+  {
+    const std::lock_guard<std::mutex> l(queueMutex_);
+    bytesProcessed_ += dataLength;
+  }
   removeItemsFromQueue();
 }
 
 void RushClient::removeItemsFromQueue() {
-  while (bytesProcessed_ > 0 && !queue_.empty() &&
-         queue_.front().second.size() <= bytesProcessed_) {
-    auto frontBufferLen = queue_.front().second.size();
-    auto ts = queue_.front().first;
-    printf("time delta: %lldns\n", timestamp() - ts);
-    queue_.pop_front();
-    bytesProcessed_ -= frontBufferLen;
+  {
+    const std::lock_guard<std::mutex> l(queueMutex_);
+    while (bytesProcessed_ > 0 && !queue_.empty() &&
+           queue_.front().second.size() <= bytesProcessed_) {
+      auto frontBufferLen = queue_.front().second.size();
+      auto ts = queue_.front().first;
+      printf("time delta: %lldns\n", timestamp() - ts);
+      queue_.pop_front();
+      bytesProcessed_ -= frontBufferLen;
+    }
   }
 }
 } // namespace rush

@@ -455,9 +455,9 @@ bool QuicConnection::tryWriteToNgtcp2() {
   ev_tstamp t =
       (expiry < now) ? 1e-9 : (ev_tstamp)(expiry - now) / NGTCP2_SECONDS;
 
-  if (t > 1e-5) {
+/*  if (t > 1e-5) {
     t = 1e-5;
-  }
+  }*/
 
   timer_.repeat = t;
   ev_timer_again(loop_, &timer_);
