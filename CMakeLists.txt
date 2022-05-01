@@ -9,6 +9,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 
+if (ENABLE_ASAN)
+  set(CMAKE_C_FLAGS "-fsanitize=address ${CMAKE_C_FLAGS}")
+	set(CMAKE_CXX_FLAGS "-fsanitize=address ${CMAKE_CXX_FLAGS}")
+endif()
+
 # set up dependencies
 find_package(Libev REQUIRED)
 include_directories(${LIBEV_INCLUDE_DIRS})

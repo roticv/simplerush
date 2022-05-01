@@ -1,0 +1,3 @@
+# Features that can be enabled for cmake (see CMakeLists.txt)
+
+option(ENABLE_ASAN      "Enable ASAN (Address sanitizer)" OFF)
