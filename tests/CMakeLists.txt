@@ -16,5 +16,16 @@ target_link_libraries(
   gtest_main
 )
 
+add_executable(
+  rushclient_test
+  RushClientTest.cpp
+)
+target_link_libraries(
+  rushclient_test
+  rush
+  gtest_main
+)
+
 include(GoogleTest)
 gtest_discover_tests(evloop_test)
+gtest_discover_tests(rushclient_test)

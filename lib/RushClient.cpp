@@ -20,6 +20,12 @@ onQuicStreamDataFramed(int64_t streamId, ssize_t dataLength, void* context) {
   client->onQuicStreamDataFramed(streamId, dataLength);
 }
 
+static void onAckedStreamDataOffset(
+    int64_t streamId, uint64_t offset, uint64_t dataLength, void* context) {
+  RushClient* client = (RushClient*)context;
+  client->onQuicStreamAcked(streamId, offset, dataLength);
+}
+
 static int64_t timestamp() {
   struct timespec tp;
 
@@ -58,12 +64,13 @@ bool RushClient::connect() {
   QuicConnectionCallbacks callbacks{
       .onStreamWritable = rush::onQuicStreamWritable,
       .onStreamDataFramed = rush::onQuicStreamDataFramed,
+      .onAckedStreamDataOffset = rush::onAckedStreamDataOffset,
       .context = this,
   };
   auto connection = QuicConnection::make(
       callbacks,
       evLoop_->getEvLoop(),
-      "live-upload-staging.facebook.com",
+      "live-upload.facebook.com",
       443,
       {"fbvp"});
   if (!connection) {
@@ -76,7 +83,6 @@ bool RushClient::connect() {
   evThread_ = std::make_unique<std::thread>([&] { evLoop_->runLoop(); });
 
   // Trigger handshake
-  //connection_->tryWriteToNgtcp2();
   evLoop_->enqueue([&] { connection_->tryWriteToNgtcp2(); });
   connectAttempted_ = true;
   return true;
@@ -118,12 +124,11 @@ ssize_t RushClient::onQuicStreamWritable(
     return 0;
   }
   *fin = 0;
-  *streamId = connection_->getStreamId();
+  *streamId = connection_ ? connection_->getStreamId() : 0;
 
   {
     const std::lock_guard<std::mutex> l(queueMutex_);
-    ssize_t totalSofar = 0;
-    //int datavcnt = 0;
+    ssize_t totalSofar = bytesPurged_;
     for (const auto& [ts, buf] : queue_) {
       if (totalSofar + buf.size() > bytesProcessed_) {
         vec->base = (uint8_t*)buf.data() + bytesProcessed_ - totalSofar;
@@ -145,21 +150,34 @@ void RushClient::onQuicStreamDataFramed(
     int64_t /*streamId*/, ssize_t dataLength) {
   {
     const std::lock_guard<std::mutex> l(queueMutex_);
+    ssize_t bufferOffset = bytesPurged_;
+    for (auto it = queue_.begin(); it != queue_.end(); ++it) {
+      if (bufferOffset + it->second.size() > bytesFramed_ &&
+          bufferOffset + it->second.size() <= bytesFramed_ + dataLength) {
+        auto ts = it->first;
+        printf("time delta: %lldns\n", timestamp() - ts);
+        break;
+      }
+      bufferOffset += it->second.size();
+    }
+    bytesFramed_ += dataLength;
     bytesProcessed_ += dataLength;
   }
-  removeItemsFromQueue();
 }
 
-void RushClient::removeItemsFromQueue() {
+// After onQuicStreamAcked is called, the data referenced in the stream in
+// offset + dataLength can be freed.
+void RushClient::onQuicStreamAcked(
+    int64_t streamId, ssize_t offset, ssize_t dataLength) {
   {
     const std::lock_guard<std::mutex> l(queueMutex_);
-    while (bytesProcessed_ > 0 && !queue_.empty() &&
-           queue_.front().second.size() <= bytesProcessed_) {
+    auto bytesNotPurged = offset + dataLength - bytesPurged_;
+    while (bytesNotPurged > 0 && !queue_.empty() &&
+           queue_.front().second.size() <= bytesNotPurged) {
       auto frontBufferLen = queue_.front().second.size();
-      auto ts = queue_.front().first;
-      printf("time delta: %lldns\n", timestamp() - ts);
       queue_.pop_front();
-      bytesProcessed_ -= frontBufferLen;
+      bytesNotPurged -= frontBufferLen;
+      bytesPurged_ += frontBufferLen;
     }
   }
 }

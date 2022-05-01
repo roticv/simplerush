@@ -79,6 +79,18 @@ static int extend_max_local_streams_bidi(
   return 0;
 }
 
+static int acked_stream_data_offset(
+    ngtcp2_conn* conn,
+    int64_t stream_id,
+    uint64_t offset,
+    uint64_t datalen,
+    void* user_data,
+    void* stream_user_data) {
+  QuicConnection* c = (QuicConnection*)user_data;
+  c->ackedStreamDataOffset(stream_id, offset, datalen);
+  return 0;
+}
+
 static int recv_stream_data_cb(
     ngtcp2_conn* conn,
     uint32_t flags,
@@ -283,7 +295,7 @@ bool QuicConnection::setupNgtcp2() {
       ngtcp2_crypto_decrypt_cb,
       ngtcp2_crypto_hp_mask_cb,
       rush::recv_stream_data_cb,
-      NULL, /* acked_stream_data_offset */
+      rush::acked_stream_data_offset,
       NULL, /* stream_open */
       NULL, /* stream_close */
       NULL, /* recv_stateless_reset */
@@ -335,7 +347,7 @@ bool QuicConnection::setupNgtcp2() {
   settings.initial_ts = timestamp();
   settings.log_printf = log_printf;
   settings.handshake_timeout = 10 * NGTCP2_SECONDS;
-  //settings.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
+  // settings.initial_rtt = NGTCP2_DEFAULT_INITIAL_RTT;
   settings.initial_rtt = 3 * NGTCP2_SECONDS;
   settings.max_udp_payload_size = maxUdpPacketSize_;
   settings.no_udp_payload_size_shaping = 1;
@@ -344,8 +356,8 @@ bool QuicConnection::setupNgtcp2() {
 
   params.initial_max_streams_uni = 3;
   params.initial_max_streams_bidi = 3;
-  params.initial_max_stream_data_bidi_local = 100*1024 * 1024;
-  params.initial_max_stream_data_bidi_remote= 100 * 1024 * 1024;
+  params.initial_max_stream_data_bidi_local = 100 * 1024 * 1024;
+  params.initial_max_stream_data_bidi_remote = 100 * 1024 * 1024;
   params.initial_max_data = 1024 * 1024 * 1024;
   params.max_idle_timeout = 300 * NGTCP2_SECONDS;
 
@@ -455,9 +467,9 @@ bool QuicConnection::tryWriteToNgtcp2() {
   ev_tstamp t =
       (expiry < now) ? 1e-9 : (ev_tstamp)(expiry - now) / NGTCP2_SECONDS;
 
-/*  if (t > 1e-5) {
+  if (t > 1e-5) {
     t = 1e-5;
-  }*/
+  }
 
   timer_.repeat = t;
   ev_timer_again(loop_, &timer_);
@@ -477,6 +489,7 @@ bool QuicConnection::tryWriteStream() {
   ngtcp2_ssize wdatalen;
   uint32_t flags;
   int fin;
+  bool needMoreData = false;
 
   ngtcp2_path_storage_zero(&ps);
 
@@ -484,7 +497,7 @@ bool QuicConnection::tryWriteStream() {
     datavcnt = callbacks_.onStreamWritable(
         &streamId, &fin, &datav, 1, callbacks_.context);
 
-    if (streamId == getStreamId() && datavcnt == 0) {
+    if (streamId == getStreamId() && datavcnt == 0 && !needMoreData) {
       // No data for now.
       return true;
     }
@@ -509,7 +522,21 @@ bool QuicConnection::tryWriteStream() {
     if (nwrite < 0) {
       switch (nwrite) {
         case NGTCP2_ERR_WRITE_MORE:
+          // There is room for more QUIC packet in the pending outgoing UDP
+          // datagram. This is because the flag NGTCP2_WRITE_STREAM_FLAG_MORE
+          // is used.
           callbacks_.onStreamDataFramed(streamId, wdatalen, callbacks_.context);
+          needMoreData = true;
+          continue;
+        case NGTCP2_ERR_STREAM_SHUT_WR:
+          if (callbacks_.onStreamWriteShutdown) {
+            callbacks_.onStreamWriteShutdown(streamId, callbacks_.context);
+          }
+          continue;
+        case NGTCP2_ERR_STREAM_DATA_BLOCKED:
+          if (callbacks_.onStreamBlocked) {
+            callbacks_.onStreamBlocked(streamId, callbacks_.context);
+          }
           continue;
         default:
           fprintf(
@@ -598,5 +625,13 @@ void QuicConnection::closeConnection() {
 
 fin:
   ev_break(loop_, EVBREAK_ALL);
+}
+
+void QuicConnection::ackedStreamDataOffset(
+    int64_t streamId, uint64_t offset, uint64_t datalen) {
+  if (callbacks_.onAckedStreamDataOffset) {
+    callbacks_.onAckedStreamDataOffset(
+        streamId, offset, datalen, callbacks_.context);
+  }
 }
 } // namespace rush

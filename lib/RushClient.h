@@ -32,10 +32,9 @@ class RushClient : private NonCopyable {
   ssize_t onQuicStreamWritable(
       int64_t* streamId, int* fin, ngtcp2_vec* vec, size_t vec_cnt);
   void onQuicStreamDataFramed(int64_t streamId, ssize_t dataLength);
+  void onQuicStreamAcked(int64_t streamId, ssize_t offset, ssize_t dataLength);
 
  private:
-  void removeItemsFromQueue();
-
   bool connectAttempted_{false};
   RushMuxer muxer_;
   std::unique_ptr<QuicConnection> connection_;
@@ -44,8 +43,12 @@ class RushClient : private NonCopyable {
   std::mutex queueMutex_;
   std::list<std::pair<int64_t, std::vector<uint8_t>>> queue_;
   ssize_t bytesProcessed_{0};
+  ssize_t bytesPurged_{0};
+  ssize_t bytesFramed_{0};
 
   std::unique_ptr<std::thread> evThread_;
   std::shared_ptr<EvLoop> evLoop_;
+
+  friend class RushClientTest_BufferManagement_Test;
 };
 } // namespace rush

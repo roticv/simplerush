@@ -39,6 +39,44 @@ typedef struct {
   void (*onStreamDataFramed)(
       int64_t streamId, ssize_t dataLength, void* context);
 
+  // This callback is called when ngtcp2 received ack for the offset. According
+  // to ngtcp2 documentation, this means that the data referenced by
+  // onStreamWritable can now by freed.
+  //
+  // @param streamId is the stream identifier
+  // @param offset is the offset of the data stream that has been acked
+  // @param dataLength is the length of data that have been acked
+  // @param context contains the context that is passed (set in the callbacks).
+  void (*onAckedStreamDataOffset)(
+      int64_t streamId, uint64_t offset, uint64_t dataLength, void* context);
+
+  // This callback is called when data is received on the given stream
+  //
+  // @param streamId is the stream identifier
+  // @param fin indicates if this is the last data on this stream
+  // @param data is the buffer containing the data received
+  // @param dataLength is the length of data received
+  // @param context contains the context that is passed (set in the callbacks).
+  void (*onRecvStreamData)(
+      int64_t streamId,
+      bool fin,
+      const uint8_t* data,
+      size_t dataLength,
+      void* context);
+
+  // This callback is called when write shutdown is returned when calling writev
+  // on ngtcp2.
+  //
+  // @param streamId is the stream identifier
+  // @param context contains the context that is passed (set in the callbacks).
+  void (*onStreamWriteShutdown)(int64_t streamId, void* context);
+
+  // This callback is called when write to ngtcp2 is blocked by QUIC flow control
+  //
+  // @param streamId is the stream identifier
+  // @param context contains the context that is passed (set in the callbacks).
+  void (*onStreamBlocked)(int64_t streamId, void* context);
+
   void* context;
 } QuicConnectionCallbacks;
 
@@ -65,6 +103,10 @@ class QuicConnection : private NonCopyable {
   bool tryWriteToNgtcp2();
   bool tryWriteStream();
   bool handleExpiry();
+
+  // for ngtcp2 callbacks
+  void
+  ackedStreamDataOffset(int64_t streamId, uint64_t offset, uint64_t datalen);
 
  private:
   QuicConnection(
